@@ -1,2 +1,2 @@
-# deepspark
-Deep Learning Operator and Algorithm Acceleration Hub: Comprising optimized DL operators and essential algorithmic components built with CUDA, C++, and C.
+# BitFlow
+A High-Performance Framework for PyTorch-Compatible Deep Learning Operators and Algorithms, Built with Python, CUDA, C++, and C
