@@ -1,0 +1,16 @@
+repos:
+  - repo: local
+    hooks:
+      - id: clang-format
+        name: clang-format
+        entry: clang-format
+        language: system
+        files: \.(c|cc|cxx|cpp|cu|h|hh|hpp|cuh)$
+        args: [--style=file, -i]
+
+      - id: clang-tidy
+        name: clang-tidy
+        entry: clang-tidy
+        language: system
+        files: \.(cpp|cu)$
+        args: [--config-file=.clang-tidy]
