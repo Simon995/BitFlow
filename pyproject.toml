@@ -130,3 +130,8 @@ filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
 ]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.11.12",
+]
