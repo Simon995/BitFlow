@@ -74,3 +74,4 @@ test1.py
 docs/Project.md
 docs/Project_v1.md
 .venv
+build/

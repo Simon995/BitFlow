@@ -1,35 +1,49 @@
-[build-system]
-requires = ["setuptools>=45", "wheel", "pybind11>=2.10.0", "torch>=2.0.0"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "bitflow"
 version = "0.1.0"
+requires-python = ">=3.11"
+license = "MIT"
 description = "High-Performance PyTorch-Compatible Deep Learning Framework"
 readme = "README.md"
 authors = [
-    {name = "Your Name", email = "your.email@example.com"},
+    {name = "simon995", email = "your.email@example.com"},
 ]
-classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-]
+
 keywords = ["pytorch", "deep learning", "cuda", "high-performance", "tensor"]
-requires-python = ">=3.8"
+
 dependencies = [
-    "torch>=2.0.0",
+    "torch==2.5.1",
     "numpy>=1.21.0",
     "pybind11>=2.10.0",
+    "setuptools>=80.9.0",
+    "cmakelang>=0.6.13",
+    "pyyaml>=6.0.2",
 ]
+
+[build-system]
+requires = [
+    "setuptools>=77.0.0,<81.0",  # 使用支持新 license 格式的版本
+    "wheel",
+    "pybind11>=2.10.0",
+    "torch==2.5.1",
+    "numpy>=1.21.0",  # 添加 numpy 到构建依赖
+]
+# 使用标准后端，避免 legacy 问题
+build-backend = "setuptools.build_meta"
+
+# 配置 uv 的自定义索引源
+[tool.uv]
+index-url = "https://mirrors.aliyun.com/pypi/simple"
+extra-index-url = [
+    "https://pypi.tuna.tsinghua.edu.cn/simple",
+    "https://download.pytorch.org/whl",
+    "https://download.pytorch.org/whl/cu118",
+    "https://data.pyg.org/whl",
+]
+
+# 特定 wheel URL
+[tool.uv.sources]
+torch = { url = "https://download.pytorch.org/whl/cu118/torch-2.5.1%2Bcu118-cp311-cp311-linux_x86_64.whl" }
 
 [project.optional-dependencies]
 dev = [
@@ -40,13 +54,16 @@ dev = [
     "pre-commit>=2.20.0",
     "cmakelang>=0.6.13",  # cmake-format
 ]
+
 cuda = [
     "cupy-cuda11x>=11.0.0",  # 根据 CUDA 版本调整
 ]
+
 benchmark = [
     "pytest-benchmark>=4.0.0",
     "memory-profiler>=0.60.0",
 ]
+
 docs = [
     "sphinx>=5.0.0",
     "sphinx-rtd-theme>=1.0.0",
@@ -54,10 +71,10 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/BitFlow"
-Repository = "https://github.com/yourusername/BitFlow"
+Homepage = "https://github.com/simon995/BitFlow"
+Repository = "https://github.com/simon995/BitFlow"
 Documentation = "https://bitflow.readthedocs.io"
-"Bug Tracker" = "https://github.com/yourusername/BitFlow/issues"
+"Bug Tracker" = "https://github.com/simon995/BitFlow/issues"
 
 # 包配置
 [tool.setuptools]
@@ -65,12 +82,12 @@ packages = ["bitflow"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-bitflow = ["_C/*.so", "_C/*.dll", "_C/*.dylib"]
+bitflow = ["bitflow/_C/*.so", "bitflow/_C/*.dll", "bitflow/_C/*.dylib"]
 
 # 代码格式化配置
 [tool.black]
 line-length = 88
-target-version = ['py38']
+target-version = ['py311']
 include = '\.pyi?$'
 exclude = '''
 /(
@@ -94,7 +111,7 @@ known_first_party = ["bitflow"]
 skip_glob = ["csrc/*"]
 
 [tool.mypy]
-python_version = "3.8"
+python_version = "3.11"  # 更新到实际使用的版本
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

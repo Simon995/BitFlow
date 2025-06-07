@@ -69,16 +69,16 @@ lint_cpp() {
 }
 
 # 格式化 CMake 文件
-format_cmake() {
-    echo -e "${BLUE}正在格式化 CMake 文件...${NC}"
+# format_cmake() {
+#     echo -e "${BLUE}正在格式化 CMake 文件...${NC}"
 
-    find "$PROJECT_ROOT" -name "CMakeLists.txt" -o -name "*.cmake" | while read -r file; do
-        echo -e "${YELLOW}格式化 $file${NC}"
-        cmake-format -i "$file"
-    done
+#     find "$PROJECT_ROOT" -name "CMakeLists.txt" -o -name "*.cmake" | while read -r file; do
+#         echo -e "${YELLOW}格式化 $file${NC}"
+#         cmake-format -i "$file"
+#     done
 
-    echo -e "${GREEN}CMake 文件格式化完成${NC}"
-}
+#     echo -e "${GREEN}CMake 文件格式化完成${NC}"
+# }
 
 # 检查格式是否正确
 check_format() {
@@ -114,7 +114,7 @@ main() {
             check_tool "clang-format" "sudo apt install clang-format 或 brew install clang-format"
             check_tool "cmake-format" "pip install cmakelang"
             format_cpp
-            format_cmake
+            # format_cmake
             ;;
         "lint")
             check_tool "clang-tidy" "sudo apt install clang-tidy 或 brew install llvm"
@@ -129,7 +129,7 @@ main() {
             check_tool "clang-tidy" "sudo apt install clang-tidy 或 brew install llvm"
             check_tool "cmake-format" "pip install cmakelang"
             format_cpp
-            format_cmake
+            # format_cmake
             lint_cpp
             ;;
         "help"|*)
