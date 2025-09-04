@@ -1,27 +1,31 @@
 # BitFlow
+
 A High-Performance Framework for PyTorch-Compatible Deep Learning Operators and Algorithms, Built with Python, CUDA, C++, and C
 
-## 1. 设置开发环境
-chmod +x scripts/setup_dev.sh
-./scripts/setup_dev.sh
+## 1. 设置和激活虚拟环境(首先安装 uv 环境管理)
 
-## 2. 激活虚拟环境
-source .venv/bin/activate
+curl -LsSf https://astral.sh/uv/install.sh | sh
 uv python install 3.11.5
 uv python pin 3.11
+source .venv/bin/activate
 uv sync
 
-## 3. 构建项目
+## 2. 构建项目
+
 make build
 
-## 4. 运行测试
+## 3. 运行测试
+
 make test
 
-## 5. 创建分发包
-python -m build
+## 4. 构建 pip 包
 
-## 6. 安装本地包
-pip install dist/bitflow-0.1.0-*.whl
+uv run python -m build --no-isolation --wheel
 
-## 7. 或者开发模式安装
+## 5. 安装本地包
+
+uv pip install dist/\*.whl
+
+## 6. 或者开发模式安装
+
 pip install -e .

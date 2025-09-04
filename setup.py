@@ -1,203 +1,217 @@
+# setup.py — 多算子可扩展 & 兼容性加强版
 from setuptools import setup, find_packages
 from torch.utils.cpp_extension import BuildExtension, CppExtension, CUDAExtension
-import torch
+from pathlib import Path
 import os
-import glob
 import platform
+import torch
 
-def check_cuda_available():
-    """检查CUDA是否可用"""
+# 项目根目录（绝对路径）
+ROOT = Path(__file__).parent.resolve()
+
+# 环境开关
+FORCE_CPU = os.environ.get("BITFLOW_FORCE_CPU", "0") == "1"
+
+# 与 PyTorch 对齐的 C++ ABI 宏
+
+
+def torch_uses_cxx11_abi() -> int:
     try:
-        return torch.cuda.is_available() and torch.version.cuda is not None
+        from torch._C import _GLIBCXX_USE_CXX11_ABI  # type: ignore
+        return int(_GLIBCXX_USE_CXX11_ABI)
     except Exception:
-        return False
+        return 0  # 保守缺省（PyTorch manylinux 轮子通常为 0）
 
-def find_source_files(root_dir):
-    """递归查找所有C/C++和CUDA源文件"""
-    csrc_dir = os.path.join(root_dir, "csrc")
-    
-    if not os.path.exists(csrc_dir):
-        print(f"Warning: {csrc_dir} does not exist")
-        return [], []
-    
-    # 查找所有C/C++源文件
-    cpp_patterns = [
-        os.path.join(csrc_dir, "**", "*.c"),     # C源文件
-        os.path.join(csrc_dir, "**", "*.cpp"),   # C++源文件
-        os.path.join(csrc_dir, "**", "*.cc"),    # C++源文件
-        os.path.join(csrc_dir, "**", "*.cxx"),   # C++源文件
+
+CXX11_ABI = torch_uses_cxx11_abi()
+
+# 递归收集源码：返回“相对 ROOT 的 POSIX 路径”，以避免 setuptools 的绝对路径报错
+
+
+def rglob_sources():
+    src_root = ROOT / "csrc"
+    if not src_root.exists():
+        raise RuntimeError(f"Missing source dir: {src_root}")
+
+    exts_cpp = {".c", ".cc", ".cpp", ".cxx"}
+    exts_cu = {".cu"}  # .cuh 为头文件，不编译
+
+    cpp_sources, cu_sources = [], []
+    for p in src_root.rglob("*"):
+        if not p.is_file():
+            continue
+        suf = p.suffix.lower()
+        if suf in exts_cpp:
+            cpp_sources.append(p)
+        elif suf in exts_cu:
+            cu_sources.append(p)
+
+    def to_rel(p): return p.relative_to(ROOT).as_posix()
+    return [to_rel(p) for p in cpp_sources], [to_rel(p) for p in cu_sources]
+
+
+CPP_SOURCES, CU_SOURCES = rglob_sources()
+
+print(f"Found C/C++ sources: {len(CPP_SOURCES)}")
+for s in CPP_SOURCES:
+    print(f"  - {s}")
+if CU_SOURCES:
+    print(f"Found CUDA sources: {len(CU_SOURCES)}")
+    for s in CU_SOURCES:
+        print(f"  - {s}")
+
+# CUDA 架构选择
+
+
+def default_cuda_archs():
+    env = os.environ.get("BITFLOW_CUDA_ARCHS")
+    if env:
+        return [a.strip() for a in env.replace(",", ";").split(";") if a.strip()]
+    try:
+        if torch.cuda.is_available():
+            major, minor = torch.cuda.get_device_capability()
+            return [f"{major}{minor}"]
+    except Exception:
+        pass
+    return ["75", "80", "86", "89"]
+
+
+ARCH_LIST = default_cuda_archs()
+
+
+def nvcc_arch_flags(archs):
+    flags = []
+    for a in archs:
+        flags += [f"-gencode=arch=compute_{a},code=sm_{a}"]
+    return flags
+
+
+# 编译/链接参数
+IS_WINDOWS = platform.system() == "Windows"
+
+CXX_ARGS_COMMON = [f"-D_GLIBCXX_USE_CXX11_ABI={CXX11_ABI}"]
+if IS_WINDOWS:
+    CXX_ARGS = ["/O2", "/std:c++17", "/openmp"]
+    NVCC_ARGS = [
+        "-O3", "--use_fast_math", "-std=c++17", "--expt-relaxed-constexpr",
+        "-DWITH_CUDA",
+        *nvcc_arch_flags(ARCH_LIST),
+        f"-D_GLIBCXX_USE_CXX11_ABI={CXX11_ABI}",
     ]
-    
-    cpp_sources = []
-    for pattern in cpp_patterns:
-        cpp_sources.extend(glob.glob(pattern, recursive=True))
-    
-    # 查找所有CUDA源文件
-    cuda_patterns = [
-        os.path.join(csrc_dir, "**", "*.cu"),
-        os.path.join(csrc_dir, "**", "*.cuh"),
-    ]
-    
-    cuda_sources = []
-    for pattern in cuda_patterns:
-        found_files = glob.glob(pattern, recursive=True)
-        # 只包含.cu文件，.cuh文件是头文件不需要编译
-        cuda_sources.extend([f for f in found_files if f.endswith('.cu')])
-    
-    return cpp_sources, cuda_sources
-
-def get_compile_args():
-    """根据平台获取编译参数"""
-    is_windows = platform.system() == "Windows"
-    
-    if is_windows:
-        # Windows编译参数
-        cxx_args = ["/O2", "/std:c++17", "/openmp"]
-        nvcc_args = [
-            "-O3",
-            "--use_fast_math",
-            "-std=c++17",
-            "--expt-relaxed-constexpr",
-            "-DWITH_CUDA",
-            # 添加多个架构支持
-            "-gencode=arch=compute_75,code=sm_75",  # Turing
-            "-gencode=arch=compute_80,code=sm_80",  # Ampere
-            "-gencode=arch=compute_86,code=sm_86",  # Ampere (RTX 30xx)
-            "-gencode=arch=compute_89,code=sm_89",  # RTX 40xx
-        ]
-        libraries = []
-    else:
-        # Linux/macOS编译参数
-        cxx_args = ["-O3", "-std=c++17", "-fopenmp"]
-        nvcc_args = [
-            "-O3",
-            "--use_fast_math",
-            "-std=c++17",
-            "--expt-relaxed-constexpr",
-            "-lineinfo",
-            "-DWITH_CUDA",
-            # 添加多个架构支持
-            "-gencode=arch=compute_75,code=sm_75",  # Turing
-            "-gencode=arch=compute_80,code=sm_80",  # Ampere
-            "-gencode=arch=compute_86,code=sm_86",  # Ampere (RTX 30xx)
-            "-gencode=arch=compute_89,code=sm_89",  # RTX 40xx
-        ]
-        libraries = ["gomp"]
-    
-    return cxx_args, nvcc_args, libraries
-
-# 获取项目根目录的绝对路径
-root_dir = os.path.dirname(os.path.abspath(__file__))
-
-# 自动查找源文件
-cpp_sources, cuda_sources = find_source_files(root_dir)
-
-print(f"Found C/C++ sources: {len(cpp_sources)}")
-for src in cpp_sources:
-    print(f"  - {os.path.relpath(src, root_dir)}")
-
-if cuda_sources:
-    print(f"Found CUDA sources: {len(cuda_sources)}")
-    for src in cuda_sources:
-        print(f"  - {os.path.relpath(src, root_dir)}")
-
-# 包含目录 - 确保所有必要的路径都包含
-include_dirs = [
-    root_dir,  # 项目根目录，用于 bitflow/ 头文件
-]
-
-# 添加csrc相关目录
-csrc_include = os.path.join(root_dir, "csrc", "include")
-csrc_root = os.path.join(root_dir, "csrc")
-if os.path.exists(csrc_include):
-    include_dirs.append(csrc_include)
-if os.path.exists(csrc_root):
-    include_dirs.append(csrc_root)
-
-# 添加第三方库目录
-cutlass_include = os.path.join(root_dir, "third_party", "cutlass", "include")
-if os.path.exists(cutlass_include):
-    include_dirs.append(cutlass_include)
-
-# 添加所有子目录到包含路径
-csrc_dir = os.path.join(root_dir, "csrc")
-if os.path.exists(csrc_dir):
-    for root, dirs, files in os.walk(csrc_dir):
-        # 检查是否包含头文件
-        if any(f.endswith(('.h', '.hpp', '.cuh')) for f in files):
-            include_dirs.append(root)
-
-# 获取编译参数
-cxx_args, nvcc_args, base_libraries = get_compile_args()
-
-# 选择扩展类型
-cuda_available = check_cuda_available()
-has_cuda_sources = len(cuda_sources) > 0
-
-if cuda_available and has_cuda_sources:
-    extension = CUDAExtension
-    sources = cpp_sources + cuda_sources
-    print("Building with CUDA support")
-    extra_compile_args = {
-        "cxx": cxx_args + ["-DWITH_CUDA"],
-        "nvcc": nvcc_args,
-    }
-    # CUDA库
-    cuda_libraries = ["cublas", "curand", "cusparse"]
-    libraries = base_libraries + cuda_libraries
+    BASE_LIBRARIES = []
+    EXTRA_LINK_ARGS = []
 else:
-    extension = CppExtension
-    sources = cpp_sources
-    if not cuda_available:
-        print("CUDA not available, building CPU-only version")
-    elif not has_cuda_sources:
-        print("No CUDA sources found, building CPU-only version")
-    else:
-        print("Building CPU-only version")
-    extra_compile_args = {"cxx": cxx_args}
-    libraries = base_libraries
+    CXX_ARGS = ["-O3", "-std=c++17", "-fopenmp", *CXX_ARGS_COMMON]
+    NVCC_ARGS = [
+        "-O3", "--use_fast_math", "-std=c++17", "--expt-relaxed-constexpr",
+        "-lineinfo", "-DWITH_CUDA",
+        *nvcc_arch_flags(ARCH_LIST),
+        f"-D_GLIBCXX_USE_CXX11_ABI={CXX11_ABI}",
+    ]
+    BASE_LIBRARIES = ["gomp"]
+    TORCH_LIB = (Path(torch.__file__).parent / "lib").as_posix()
+    EXTRA_LINK_ARGS = [f"-Wl,-rpath,{TORCH_LIB}"]
 
-# 检查是否有源文件
-if not sources:
-    raise RuntimeError("No source files found! Please check your csrc directory structure.")
+# include 目录改为“绝对路径”，以适配 Ninja 的临时构建目录
 
-# 设置链接参数
-extra_link_args = []
-if platform.system() != "Windows":
-    # 获取 PyTorch 库路径
-    torch_lib_path = os.path.join(os.path.dirname(torch.__file__), "lib")
-    extra_link_args = [f"-Wl,-rpath,{torch_lib_path}"]
+
+def collect_include_dirs_abs():
+    incs = set()
+    for d in [
+        ROOT,                                       # 需要时支持 #include "bitflow/..."
+        ROOT / "csrc",
+        ROOT / "csrc" / "include",
+        ROOT / "csrc" / "include" / "bitflow" / "ops",  # 你当前头文件包含层级
+        ROOT / "third_party" / "cutlass" / "include",
+    ]:
+        if d.exists():
+            incs.add(d.resolve().as_posix())
+
+    csrc_dir = ROOT / "csrc"
+    if csrc_dir.exists():
+        for sub in csrc_dir.rglob("*"):
+            if sub.is_dir():
+                try:
+                    if any(
+                        p.is_file() and p.suffix.lower() in {
+                            ".h", ".hpp", ".cuh"}
+                        for p in sub.iterdir()
+                    ):
+                        incs.add(sub.resolve().as_posix())
+                except PermissionError:
+                    pass
+    return sorted(incs)
+
+
+INCLUDE_DIRS_ABS = collect_include_dirs_abs()
+
+# 选择扩展类型（CPU/CUDA）
+CUDA_OK = (not FORCE_CPU) and torch.cuda.is_available() and bool(CU_SOURCES)
+if CUDA_OK:
+    ExtensionClass = CUDAExtension
+    SOURCES = CPP_SOURCES + CU_SOURCES     # 相对路径
+    print("Building with CUDA support")
+    EXTRA_COMPILE = {"cxx": CXX_ARGS + ["-DWITH_CUDA"], "nvcc": NVCC_ARGS}
+    LIBRARIES = BASE_LIBRARIES + ["cublas", "curand", "cusparse"]
+else:
+    ExtensionClass = CppExtension
+    SOURCES = CPP_SOURCES                  # 相对路径
+    if FORCE_CPU:
+        print("BITFLOW_FORCE_CPU=1 -> CPU-only build")
+    elif not torch.cuda.is_available():
+        print("CUDA not available -> CPU-only build")
+    elif not CU_SOURCES:
+        print("No CUDA sources found -> CPU-only build")
+    EXTRA_COMPILE = {"cxx": CXX_ARGS}
+    LIBRARIES = BASE_LIBRARIES
+
+if not SOURCES:
+    raise RuntimeError(
+        "No source files found under csrc/. Add operators first.")
 
 ext_modules = [
-    extension(
+    ExtensionClass(
         name="bitflow._C",
-        sources=sources,
-        include_dirs=include_dirs,
-        extra_compile_args=extra_compile_args,
-        extra_link_args=extra_link_args,
+        sources=SOURCES,                    # 相对路径（避免 setuptools 绝对路径报错）
+        include_dirs=INCLUDE_DIRS_ABS,      # 绝对路径（保证在临时 build 目录也能找到头文件）
+        extra_compile_args=EXTRA_COMPILE,
+        extra_link_args=EXTRA_LINK_ARGS,
         define_macros=[
             ("TORCH_EXTENSION_NAME", "_C"),
             ("TORCH_API_INCLUDE_EXTENSION_H", None),
+            ("BITFLOW_WITH_CUDA", int(CUDA_OK)),
+            ("_GLIBCXX_USE_CXX11_ABI", CXX11_ABI),
         ],
-        libraries=libraries,
+        libraries=LIBRARIES,
         language="c++",
     )
 ]
 
+# 可选：包内打包共享库；若你已在 pyproject.toml 配置 package-data，可删掉这里
+PKG_DATA = {
+    "bitflow": [
+        "bitflow/_C/*.so",
+        "bitflow/_C/*.pyd",
+        "bitflow/_C/*.dll",
+        "bitflow/_C/*.dylib",
+    ]
+}
+
 setup(
     name="bitflow",
     version="0.1.0",
-    description="BitFlow: High-performance quantization library",
+    description="BitFlow: High-performance deep learning operators (PyTorch-compatible)",
     author="Your Name",
     author_email="your.email@example.com",
-    ext_modules=ext_modules,
-    cmdclass={"build_ext": BuildExtension},
     packages=find_packages(),
     python_requires=">=3.8",
     install_requires=[
-        "torch>=1.8.0",
+        "torch>=1.12.0",   # 如仅支持特定版本可收紧
         "numpy",
     ],
+    ext_modules=ext_modules,
+    cmdclass={"build_ext": BuildExtension},
+    package_data=PKG_DATA,  # 与 pyproject.toml 二选一
     zip_safe=False,
     classifiers=[
         "Development Status :: 3 - Alpha",

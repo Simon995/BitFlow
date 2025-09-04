@@ -17,7 +17,7 @@ build:   ## 构建和安装 BitFlow
 
 test:   ## 运行测试
 	@echo "Running BitFlow tests..."
-	@uv python3 tests/test_ops/test_conv.py
+	@uv run python tests/test_ops/test_conv.py
 
 clean:   ## 清理构建文件
 	@echo "Cleaning build files..."
